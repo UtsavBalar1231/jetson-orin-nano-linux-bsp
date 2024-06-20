@@ -1,4 +1,4 @@
-# Jetson Orin Baseboard BSP
+# Bloom Mobile Device BSP
 
 ## Setting up the workspace directory
 
@@ -122,7 +122,7 @@ To verify communication with the board in recovery mode, execute:
 
 ```bash
 cd $WORKSPACE/Linux_for_Tegra
-sudo ./flash.sh -Z custom+p3767 internal
+sudo ./flash.sh -Z p3768-0000-p3767-0000-bloom internal
 ```
 
 ### Flashing the QSPI
@@ -132,23 +132,13 @@ Enter recovery mode and run:
 
 ```bash
 cd $WORKSPACE/Linux_for_Tegra
-sudo ./flash.sh custom+p3767 internal
+sudo ./flash.sh p3768-0000-p3767-0000-bloom internal
 ```
 
-### Flashing the USB stick
-
-Connect the USB stick (at least 16 GB, USB3.0) to the USB Host port on
-Jetson Orin Baseboard. Enter recovery mode and execute:
+or
 
 ```bash
-cd $WORKSPACE/Linux_for_Tegra
-sudo ADDITIONAL_DTB_OVERLAY_OPT="BootOrderUsb.dtbo" \
-    ./tools/kernel_flash/l4t_initrd_flash.sh \
-    --external-only \
-    -c ./tools/kernel_flash/flash_l4t_external.xml \
-    --external-device sda \
-    custom+p3767 \
-    internal
+sudo ./bsp.sh -f
 ```
 
 The board should reboot, display the UEFI prompt on Debug UART, execute the
