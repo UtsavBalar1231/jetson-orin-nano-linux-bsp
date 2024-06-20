@@ -28,21 +28,29 @@ function exit_with_error() {
 	exit 1
 }
 
+if [ $(id -u) -ne 0 ]; then 
+	exit_with_error "Please run this script as root or using sudo!"
+fi
+
 function configure_bsp() {
+	if ! command -v rsync >/dev/null; then
+		exit_with_error "rsync package not found!"
+	fi
+
 	# Copy bootloader files to BSP
-	cp -rvf ${OVL_DIR}/* ${BSP_DIR}/
+	rsync -rav ${OVL_DIR}/* ${BSP_DIR}/
 
 	# Copy kernel image, dtb and modules to BSP
-	cp -vf ${KERNEL_OUT_DIR}/arch/arm64/boot/dts/*.dtb ${BSP_DIR}/kernel/dtb/
-	cp -vf ${KERNEL_OUT_DIR}/arch/arm64/boot/dts/*.dtbo ${BSP_DIR}/kernel/dtb/
-	cp -vf ${KERNEL_OUT_DIR}/arch/arm64/boot/Image ${BSP_DIR}/kernel/Image
+	rsync -av ${KERNEL_OUT_DIR}/arch/arm64/boot/dts/*.dtb ${BSP_DIR}/kernel/dtb/
+	rsync -av ${KERNEL_OUT_DIR}/arch/arm64/boot/dts/*.dtbo ${BSP_DIR}/kernel/dtb/
+	rsync -av ${KERNEL_OUT_DIR}/arch/arm64/boot/Image ${BSP_DIR}/kernel/Image
 	pushd ${KERNEL_OUT_DIR}/modules_install
-	BZIP=--fast tar --owner root --group root -cjvf ${BSP_DIR}/kernel/kernel_supplements.tbz2 lib/modules
+	BZIP=--fast tar --owner root --group root -cvjf ${BSP_DIR}/kernel/kernel_supplements.tbz2 lib/modules
 	popd
 
 	# Sync binaries
 	pushd ${BSP_DIR}
-	sudo ./apply_binaries.sh --target-overlay
+	./apply_binaries.sh --target-overlay
 	popd
 }
 
@@ -87,12 +95,39 @@ function update_bsp() {
 }
 
 function build_kernel() {
+	local clean_build
+	clean_build=false
+
 	if ! command -v make &>/dev/null; then
 		exit_with_error "make command is not installed"
 	fi
 
+	if [ ! -f "${CROSS_COMPILE_AARCH64}"gcc ]; then
+		exit_with_error "Toolchain not found, did you synced BSP sources?"
+	fi
+
 	if [[ "$(uname -m)" =~ "x86" ]]; then
 		IS_CROSS_COMPILATION=1
+	fi
+
+	if [ $# -gt 0 ]; then
+		shift
+		echo "Args: $@"
+		case $1 in
+			-c)
+				clean_build=true
+				;;
+			*)
+				;;
+		esac
+	fi
+
+	if [ $clean_build == true ]; then
+		make -C ${KERNEL_DIR} ${KERNEL_FLAGS} clean
+		make -C ${KERNEL_DIR} ${KERNEL_FLAGS} mrproper
+
+		echo "Cleaned up ${KERNEL_DIR}"
+		exit 0
 	fi
 
 	# Build kernel config
@@ -106,7 +141,11 @@ function build_kernel() {
 
 	# Build kernel
 	make -C ${KERNEL_DIR} ${KERNEL_FLAGS} \
-		--output-sync=target Image dtbs modules
+		--output-sync=target Image dtbs
+
+	# Build modules
+	make -C ${KERNEL_DIR} ${KERNEL_FLAGS} \
+		--output-sync=target modules
 
 	# Install modules
 	make -C ${KERNEL_DIR} ${KERNEL_FLAGS} \
@@ -121,6 +160,18 @@ function build_kernel() {
 	fi
 
 	echo "Done, Compiled kernel, modules and dtbs in ${KERNEL_OUT_DIR}"
+}
+
+function flash_rootfs() {
+	pushd ${BSP_DIR}
+	./flash.sh p3768-0000-p3767-0000-bloom external
+	# ADDITIONAL_DTB_OVERLAY_OPT="BootOrderNvme.dtbo" \
+	# 	./tools/kernel_flash/l4t_initrd_flash.sh \
+	# 			--external-device nvme0n1 \
+	# 			-c ./tools/kernel_flash/flash_l4t_external.xml \
+	# 			--showlogs \
+	# 			p3768-0000-p3767-0000-bloom nvme0n1p1
+	popd
 }
 
 function usage() {
@@ -163,7 +214,10 @@ while [ $# -gt 0 ]; do
 		update_bsp
 		;;
 	-k | --kernel)
-		build_kernel
+		build_kernel $@
+		;;
+	-f | --flash)
+		flash_rootfs
 		;;
 	*)
 		usage
